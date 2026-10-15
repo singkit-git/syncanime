@@ -355,6 +355,9 @@
       const list = serversForMode();
       bar.innerHTML =
         '<div class="watch-meta"><strong>' + esc(watch.title) + "</strong>" + esc(epLabel) + "</div>" +
+        (watch.episode != null && modalState.episodes.length > 1
+          ? '<div class="ep-step"><button class="step-btn" data-ep-step="-1" aria-label="Previous episode">‹ Prev</button><button class="step-btn" data-ep-step="1" aria-label="Next episode">Next ›</button></div>'
+          : "") +
         '<div class="mode-toggle">' +
           '<button class="mode-btn' + (watch.mode === "sub" ? " active" : "") + '" data-watch-mode="sub"' + (watch.servers.length && !hasSub ? " disabled" : "") + '>Sub</button>' +
           '<button class="mode-btn' + (watch.mode === "dub" ? " active" : "") + '" data-watch-mode="dub"' + (watch.servers.length && !hasDub ? " disabled" : "") + '>Dub</button>' +
@@ -559,23 +562,46 @@
         '<div><div class="eyebrow">Details</div><h2 id="modal-title">' + esc(a.title) + "</h2>" +
         '<div class="meta">' + esc(a.type || "Anime") + (a.year ? " • " + esc(a.year) : "") + (a.episodes ? " • " + esc(a.episodes) + " eps" : "") + (a.score != null ? " • ★ " + esc(a.score) : "") + "</div>" +
         '<div class="pills">' + genres + "</div>" +
-        "<p>" + esc(a.synopsis || "No synopsis is available for this title.") + "</p>" +
+        '<p class="synopsis">' + esc(a.synopsis || "No synopsis is available for this title.") + "</p>" +
         (a.studios && a.studios.length ? '<p class="sub-note">Studio: ' + esc(a.studios.join(", ")) + "</p>" : "") +
         (a.siteUrl ? '<a class="external" target="_blank" rel="noopener noreferrer" href="' + esc(a.siteUrl) + '">Open in ' + (a.kind === "kitsu" ? "Kitsu" : a.kind === "anikoto" ? "Catalog" : "AniList") + " ↗</a>" : "") +
-        '<div id="episode-zone"><p class="sub-note">Finding streams…</p></div></div>';
+        '</div><div id="episode-zone" style="grid-column:1/-1"><p class="sub-note">Finding streams…</p></div>';
     }
     function renderEpisodeZone(html) {
       const zone = document.getElementById("episode-zone");
       if (zone) zone.innerHTML = html;
     }
+    const EP_CHUNK = 25;
+    const epNum = (ep, i) => (ep.n != null ? ep.n : i + 1);
+    function epListInner() {
+      const eps = modalState.episodes;
+      const chunks = Math.ceil(eps.length / EP_CHUNK);
+      const cur = Math.min(modalState.epChunk || 0, chunks - 1);
+      const from = cur * EP_CHUNK, to = Math.min(from + EP_CHUNK, eps.length);
+      let chips = "";
+      if (chunks > 1) {
+        chips = '<div class="ep-chunks">';
+        for (let c = 0; c < chunks; c++) {
+          const f = c * EP_CHUNK, t = Math.min(f + EP_CHUNK, eps.length) - 1;
+          chips += '<button class="ep-chunk' + (c === cur ? " active" : "") + '" data-ep-chunk="' + c + '">' + esc(epNum(eps[f], f) + "–" + epNum(eps[t], t)) + "</button>";
+        }
+        chips += "</div>";
+      }
+      let grid = '<div class="ep-list">';
+      for (let i = from; i < to; i++) {
+        const active = watch.episode != null && epNum(eps[i], i) === watch.episode;
+        grid += '<button class="ep-btn ep-row' + (active ? " active" : "") + '" data-ep-index="' + i + '" aria-label="Play episode ' + esc(epNum(eps[i], i)) + '">' + esc(epNum(eps[i], i)) + "</button>";
+      }
+      return chips + grid + "</div>";
+    }
+    function renderEpList() {
+      const w = document.getElementById("ep-wrap");
+      if (w) w.innerHTML = epListInner();
+    }
     function episodeRowsHtml(episodes, kind) {
       if (!episodes.length) return '<p class="sub-note">No episodes found on the streaming source.</p>';
-      const rows = episodes.map((ep, i) => {
-        const n = ep.n != null ? ep.n : i + 1;
-        return '<div class="ep-row" data-ep-index="' + i + '"><span>Episode ' + esc(n) + "</span>" +
-          '<button class="ep-play" data-ep-index="' + i + '">▶ Play</button></div>';
-      }).join("");
-      return '<h3 style="margin:18px 0 10px;font-size:15px">Episodes (' + episodes.length + ')</h3><div class="ep-list">' + rows + "</div>";
+      modalState.epChunk = 0;
+      return '<h3 style="margin:18px 0 10px;font-size:15px">Episodes (' + episodes.length + ')</h3><div id="ep-wrap">' + epListInner() + "</div>";
     }
     async function loadEpisodeServers(epIndex) {
       const ep = modalState.episodes[epIndex];
@@ -603,7 +629,12 @@
       watch.epCount = modalState.episodes.length;
       watch.mode = "sub";
       watch.embedUrl = null; watch.skip = null;
-      document.querySelectorAll(".ep-row").forEach(r => r.classList.toggle("active", r.dataset.epIndex === String(index)));
+      modalState.epChunk = Math.floor(index / EP_CHUNK);
+      renderEpList();
+      if (!window.matchMedia("(max-width:700px)").matches) {
+        const box = modal.querySelector(".modal-box");
+        if (box) box.scrollTo({ top: 0, behavior: "smooth" });
+      }
       try {
         if (modalState.epData) {
           showPlayerLoading("Fetching servers…");
@@ -754,6 +785,17 @@
         if (match) await loadMatchedEpisodes(match);
         return;
       }
+      const chunkBtn = event.target.closest("[data-ep-chunk]");
+      if (chunkBtn) { modalState.epChunk = Number(chunkBtn.dataset.epChunk); renderEpList(); return; }
+      const stepBtn = event.target.closest("[data-ep-step]");
+      if (stepBtn && modalState.episodes.length) {
+        const cur = modalState.episodes.findIndex((ep, i) => epNum(ep, i) === watch.episode);
+        const next = cur + Number(stepBtn.dataset.epStep);
+        if (cur >= 0 && next >= 0 && next < modalState.episodes.length) await playEpisodeByIndex(next);
+        return;
+      }
+      const syn = event.target.closest(".synopsis");
+      if (syn) { syn.classList.toggle("open"); return; }
       const epBtn = event.target.closest("[data-ep-index]");
       if (epBtn && modalState.episodes.length) {
         await playEpisodeByIndex(Number(epBtn.dataset.epIndex));
