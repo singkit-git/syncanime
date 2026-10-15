@@ -1,0 +1,16 @@
+{
+  "name": "syncanime",
+  "version": "1.1.0",
+  "description": "Anime catalog + player",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "lint": "node --check server.js && node --check worker/index.js && node --check public/app.js && node --check public/sw.js",
+    "cf:dev": "npx wrangler dev",
+    "cf:deploy": "npx wrangler deploy"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
