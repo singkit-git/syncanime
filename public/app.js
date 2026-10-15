@@ -261,6 +261,29 @@
     /* ===================== local ad-free player ===================== */
     let hlsLibPromise = null;
     let currentHls = null;
+    function showUnmuteBtn(video) {
+      const box = video.parentElement;
+      if (!box || box.querySelector(".unmute-btn")) return;
+      const b = document.createElement("button");
+      b.className = "unmute-btn"; b.type = "button"; b.textContent = "\uD83D\uDD0A Tap to unmute";
+      b.addEventListener("click", () => { video.muted = false; video.volume = 1; b.remove(); });
+      video.addEventListener("volumechange", () => { if (!video.muted) b.remove(); });
+      box.appendChild(b);
+    }
+    // Start with sound. If the browser blocks unmuted autoplay, start muted and offer a one-tap unmute.
+    function tryPlayUnmuted(video) {
+      if (!video) return;
+      video.muted = false; video.volume = 1;
+      const p = video.play();
+      if (p && p.catch) {
+        p.catch(() => {
+          video.muted = true;
+          const q = video.play();
+          const done = () => showUnmuteBtn(video);
+          if (q && q.then) q.then(done).catch(() => {}); else done();
+        });
+      }
+    }
     function destroyHls() { if (currentHls) { try { currentHls.destroy(); } catch (e) {} currentHls = null; } }
     function loadHlsLib() {
       if (window.Hls) return Promise.resolve(window.Hls);
@@ -314,6 +337,7 @@
       if (!isHls) {
         box.innerHTML = '<video controls autoplay playsinline src="' + esc(url) + '"></video>';
         setupSkipButtons(box.querySelector("video"));
+        tryPlayUnmuted(box.querySelector("video"));
         return;
       }
       box.innerHTML = '<video id="sync-video" controls autoplay playsinline crossorigin="anonymous"></video>';
@@ -333,8 +357,10 @@
         currentHls = hls;
         hls.loadSource("/api/hls?url=" + encodeURIComponent(url));
         hls.attachMedia(video);
+        hls.on(HlsLib.Events.MANIFEST_PARSED, () => tryPlayUnmuted(video));
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = "/api/hls?url=" + encodeURIComponent(url);
+        video.addEventListener("loadedmetadata", () => tryPlayUnmuted(video), { once: true });
       } else throw new Error("HLS not supported in this browser.");
       setupSkipButtons(video);
     }
