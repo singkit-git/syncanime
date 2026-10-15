@@ -18,7 +18,16 @@
         if (Date.now() - entry.timestamp < CACHE_TTL) return entry.data;
         cache.delete(path);
       }
-      const response = await fetch("/api/catalog" + path, { headers: { Accept: "application/json" } });
+      let response;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        response = await fetch("/api/catalog" + path, { headers: { Accept: "application/json" } });
+        if (response.status !== 429 && response.status < 500) break;
+        if (attempt < 2) {
+          const ra = Number(response.headers.get("Retry-After"));
+          await new Promise(r => setTimeout(r, Math.min((Number.isFinite(ra) && ra > 0 ? ra : 1.5 * (attempt + 1)) * 1000, 5000)));
+        }
+      }
+      if (response.status === 429) throw new Error("The catalog is busy right now (HTTP 429). Please wait a few seconds and tap Retry.");
       if (!response.ok) throw new Error("Catalog API returned HTTP " + response.status + ".");
       const json = await response.json();
       if (json && json.ok === false) throw new Error(json.error || json.message || "Catalog request failed.");
@@ -71,7 +80,7 @@
       };
     }
     async function anilistBrowse(params) {
-      const variables = { page: params.page, perPage: 24, sort: [params.sort || "TRENDING_DESC"] };
+      const variables = { page: params.page, perPage: params.perPage || 24, sort: [params.sort || "TRENDING_DESC"] };
       if (params.search) variables.search = params.search;
       if (params.genre) variables.genre = params.genre;
       if (params.format) variables.format = params.format;
@@ -516,7 +525,7 @@
       const apply = () => {
         browse.search = document.getElementById("search-input").value.trim();
         browse.page = 1;
-        runBrowse();
+        runBrowse({ scroll: !!immediate && !!browse.search });
       };
       if (immediate) apply();
       else searchTimer = setTimeout(apply, 400);
@@ -532,11 +541,105 @@
     bindFilter("format-select", "format");
     bindFilter("status-select", "status");
     bindFilter("sort-select", "sort");
-    document.getElementById("search-form").addEventListener("submit", event => {
-      event.preventDefault();
-      onBrowseInput(true);
+    /* ===================== live search dropdown ===================== */
+    const sgBox = document.getElementById("suggest");
+    const sgInput = document.getElementById("search-input");
+    const sgForm = document.getElementById("search-form");
+    const sgCache = new Map();
+    let sgToken = 0, sgTimer = null, sgItems = [], sgActive = -1;
+    function sgPosition() {
+      const r = sgForm.getBoundingClientRect();
+      sgBox.style.top = (r.bottom + 8) + "px";
+      if (window.innerWidth <= 700) {
+        sgBox.style.left = "8px"; sgBox.style.right = "8px"; sgBox.style.width = "auto";
+      } else {
+        const w = Math.min(420, window.innerWidth - 16);
+        sgBox.style.width = w + "px"; sgBox.style.right = "auto";
+        sgBox.style.left = Math.max(8, r.right - w) + "px";
+      }
+    }
+    function sgOpen(html) {
+      sgBox.innerHTML = html; sgBox.hidden = false; sgActive = -1;
+      sgPosition(); sgInput.setAttribute("aria-expanded", "true");
+    }
+    function sgClose() {
+      sgBox.hidden = true; sgActive = -1; sgInput.setAttribute("aria-expanded", "false");
+    }
+    function sgRender(q, items) {
+      sgItems = items;
+      if (!items.length) { sgOpen('<div class="sg-empty">No results for \u201c' + esc(q) + "\u201d</div>"); return; }
+      const rows = items.map((it, i) => {
+        const meta = [it.type, it.year, it.score != null ? "\u2605 " + (Math.round(it.score * 10) / 10) : ""].filter(Boolean).join(" \u2022 ");
+        return '<div class="sg-item" role="option" data-sg-index="' + i + '">' +
+          (it.poster ? '<img src="' + esc(it.poster) + '" alt="" loading="lazy">' : '<div class="sg-noimg"></div>') +
+          '<div class="sg-text"><div class="sg-title">' + esc(it.title) + '</div><div class="sg-meta">' + esc(meta) + "</div></div></div>";
+      }).join("");
+      sgOpen(rows + '<div class="sg-all" data-sg-all>See all results for \u201c' + esc(q) + "\u201d \u2192</div>");
+    }
+    async function sgSearch(q) {
+      const token = ++sgToken;
+      const key = q.toLowerCase();
+      if (sgCache.has(key)) { sgRender(q, sgCache.get(key)); return; }
+      sgOpen('<div class="sg-empty">Searching\u2026</div>');
+      try {
+        const result = await browseAnime({ page: 1, search: q, perPage: 8 });
+        if (token !== sgToken) return;
+        const items = result.items.slice(0, 8);
+        if (sgCache.size >= 40) sgCache.delete(sgCache.keys().next().value);
+        sgCache.set(key, items);
+        sgRender(q, items);
+      } catch (err) {
+        if (token !== sgToken) return;
+        sgOpen('<div class="sg-empty">' + esc(err.message || "Search failed") + "</div>");
+      }
+    }
+    function sgPick(i) {
+      const it = sgItems[i];
+      if (!it) return;
+      sgClose(); sgInput.blur();
+      openMetadataDetail({ kind: it.kind, id: it.id });
+    }
+    function sgSeeAll() { sgToken++; sgClose(); sgInput.blur(); onBrowseInput(true); }
+    function sgHighlight(next) {
+      const rows = sgBox.querySelectorAll(".sg-item");
+      if (!rows.length) return;
+      sgActive = (next + rows.length) % rows.length;
+      rows.forEach((r, i) => r.classList.toggle("active", i === sgActive));
+      rows[sgActive].scrollIntoView({ block: "nearest" });
+    }
+    sgInput.addEventListener("input", () => {
+      clearTimeout(sgTimer);
+      const q = sgInput.value.trim();
+      if (q.length < 2) {
+        sgToken++; sgClose();
+        if (!q && browse.search) onBrowseInput(true); // cleared: reset the page results
+        return;
+      }
+      sgTimer = setTimeout(() => sgSearch(q), 350);
     });
-    document.getElementById("search-input").addEventListener("input", () => onBrowseInput(false));
+    sgInput.addEventListener("focus", () => {
+      const q = sgInput.value.trim().toLowerCase();
+      if (q.length >= 2 && sgCache.has(q)) sgRender(sgInput.value.trim(), sgCache.get(q));
+    });
+    sgInput.addEventListener("keydown", e => {
+      if (e.key === "Escape") { sgClose(); e.stopPropagation(); }
+      else if (e.key === "ArrowDown" && !sgBox.hidden) { e.preventDefault(); sgHighlight(sgActive + 1); }
+      else if (e.key === "ArrowUp" && !sgBox.hidden) { e.preventDefault(); sgHighlight(sgActive - 1); }
+    });
+    sgForm.addEventListener("submit", event => {
+      event.preventDefault();
+      clearTimeout(sgTimer);
+      if (sgActive >= 0 && !sgBox.hidden) { sgPick(sgActive); return; }
+      sgSeeAll();
+    });
+    sgBox.addEventListener("click", e => {
+      const item = e.target.closest("[data-sg-index]");
+      if (item) { sgPick(Number(item.dataset.sgIndex)); return; }
+      if (e.target.closest("[data-sg-all]")) sgSeeAll();
+    });
+    document.addEventListener("click", e => { if (!sgBox.hidden && !e.target.closest("#search-form")) sgClose(); });
+    window.addEventListener("resize", () => { if (!sgBox.hidden) sgPosition(); });
+    window.addEventListener("scroll", () => { if (!sgBox.hidden) sgPosition(); }, { passive: true });
     document.getElementById("clear-search").addEventListener("click", resetBrowse);
     document.getElementById("filters-clear").addEventListener("click", resetBrowse);
     document.getElementById("prev-page").addEventListener("click", () => {
