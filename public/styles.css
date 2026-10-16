@@ -96,3 +96,7 @@
 .resume-btn{width:100%;min-height:46px;margin:0 0 12px;border:0;border-radius:10px;background:var(--red);color:#fff;font-weight:800;font-size:14px;touch-action:manipulation}
 .ep-btn.seen:not(.active){color:#69748a;background:#0e131c}
 @media(max-width:700px){#history-cards .anime-card{flex-basis:124px}}
+
+/* ===== History link in the menu ===== */
+#history-section{scroll-margin-top:84px}
+[data-hist-clear][hidden]{display:none}

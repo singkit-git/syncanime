@@ -623,7 +623,8 @@
       const it = sgItems[i];
       if (!it) return;
       sgClose(); sgInput.blur();
-      openMetadataDetail({ kind: it.kind, id: it.id });
+      if (it.kind === "anikoto") openAnikotoSeries(it.id);
+      else openMetadataDetail({ kind: it.kind, id: it.id });
     }
     function sgSeeAll() { sgToken++; sgClose(); sgInput.blur(); onBrowseInput(true); }
     function sgHighlight(next) {
@@ -975,6 +976,8 @@
       else { cache.clear(); await loadRecent(); }
       button.textContent = "Refresh ↻";
     }));
+    function closeMenu() { document.querySelector("nav").style.cssText = ""; }
+    document.querySelectorAll('nav[aria-label="Main navigation"] a').forEach(a => a.addEventListener("click", closeMenu));
     document.getElementById("menu-btn").addEventListener("click", () => {
       const nav = document.querySelector("nav");
       const open = nav.style.display === "flex";
@@ -1025,13 +1028,26 @@
       const html = cardHtml({ kind: h.kind, id: h.id, title: h.title, poster: h.poster, score: h.score, genres: [label], type: label });
       return html.replace("</article>", '<button class="hist-remove" type="button" aria-label="Remove from history" data-hist-remove="' + esc(h.kind + "|" + h.id) + '">\u00d7</button></article>');
     }
+    let historyForce = false; // set when the menu's History link is tapped, so the section shows even if empty
     function renderHistory() {
       const sec = document.getElementById("history-section");
       if (!sec) return;
       const list = loadHistory().slice(0, 20);
-      sec.hidden = list.length === 0;
-      document.getElementById("history-cards").innerHTML = list.map(historyCardHtml).join("");
+      sec.hidden = list.length === 0 && !historyForce;
+      const clearBtn = sec.querySelector("[data-hist-clear]");
+      if (clearBtn) clearBtn.hidden = list.length === 0;
+      document.getElementById("history-cards").innerHTML = list.length
+        ? list.map(historyCardHtml).join("")
+        : '<div class="empty">No watch history yet. Play an episode and it will show up here.</div>';
     }
+    function showHistorySection() {
+      historyForce = true;
+      renderHistory();
+      const sec = document.getElementById("history-section");
+      if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    const navHistory = document.getElementById("nav-history");
+    if (navHistory) navHistory.addEventListener("click", e => { e.preventDefault(); showHistorySection(); });
 
     /* ===================== init ===================== */
     (async function init() {
