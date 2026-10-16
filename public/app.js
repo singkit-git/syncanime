@@ -766,6 +766,8 @@
     async function playEpisodeByIndex(index) {
       const ep = modalState.episodes[index];
       if (!ep) return;
+      const resumeBtn = document.querySelector(".resume-btn");
+      if (resumeBtn) resumeBtn.remove(); // already continuing, so the button isn't needed any more
       openPlayer();
       watch.title = modalState.item.title;
       watch.episode = ep.n != null ? ep.n : index + 1;
