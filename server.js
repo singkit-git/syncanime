@@ -517,7 +517,7 @@ function serveStatic(req, res) {
   } catch (e) {
     res.writeHead(400); res.end('Bad request'); return;
   }
-  if (pathname === '/') pathname = '/index.html';
+  if (pathname === '/' || pathname.startsWith('/anime/')) pathname = '/index.html';
   if (!PUBLIC_FILES.has(pathname)) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');

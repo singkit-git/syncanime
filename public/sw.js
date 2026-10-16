@@ -1,5 +1,5 @@
 // Caches the app shell + remembers poster images. API and stream requests always go to the network.
-const CACHE = 'syncanime-shell-v9';
+const CACHE = 'syncanime-shell-v10';
 const IMG = 'syncanime-img-v1';
 const IMG_MAX = 200;
 const SHELL = ['/', '/styles.css', '/app.js', '/manifest.json', '/icon-192.png', '/hero-bg.jpg'];
@@ -43,7 +43,7 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
+        if (res.ok && !url.pathname.startsWith('/anime/')) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
         return res;
       })
       .catch(() => caches.match(e.request).then((r) => r || caches.match('/')))

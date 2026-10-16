@@ -384,12 +384,12 @@
     }
     function renderWatchBar() {
       const bar = document.getElementById("watch-bar");
-      const epLabel = watch.episode ? " · Ep " + watch.episode + (watch.epCount ? " / " + watch.epCount : "") : "";
+      const epLabel = watch.episode ? "Episode " + watch.episode + (watch.epCount ? " / " + watch.epCount : "") : "";
       const hasSub = watch.servers.some(s => s.type === "sub");
       const hasDub = watch.servers.some(s => s.type === "dub");
       const list = serversForMode();
       bar.innerHTML =
-        '<div class="watch-meta"><strong>' + esc(watch.title) + "</strong>" + esc(epLabel) + "</div>" +
+        '<div class="watch-meta"><strong>' + esc(epLabel || watch.title) + "</strong></div>" +
         (watch.episode != null && modalState.episodes.length > 1
           ? '<div class="ep-step"><button class="step-btn" data-ep-step="-1" aria-label="Previous episode">‹ Prev</button><button class="step-btn" data-ep-step="1" aria-label="Next episode">Next ›</button></div>'
           : "") +
@@ -401,8 +401,7 @@
           ? '<div class="server-chips">' + list.map((s, i) =>
               '<button class="server-chip' + (i === watch.serverIdx ? " active" : "") + '" data-server-index="' + i + '">' + esc(s.name || ("Server " + (i + 1))) + "</button>"
             ).join("") + "</div>"
-          : "") +
-        (watch.embedUrl ? '<a class="tiny-link" target="_blank" rel="noopener noreferrer" href="' + esc(watch.embedUrl) + '">Open embed ↗</a>' : "");
+          : "");
     }
     function openPlayer() {
       document.getElementById("player-wrap").hidden = false;
@@ -695,7 +694,6 @@
         '<div class="pills">' + genres + "</div>" +
         '<p class="synopsis">' + esc(a.synopsis || "No synopsis is available for this title.") + "</p>" +
         (a.studios && a.studios.length ? '<p class="sub-note">Studio: ' + esc(a.studios.join(", ")) + "</p>" : "") +
-        (a.siteUrl ? '<a class="external" target="_blank" rel="noopener noreferrer" href="' + esc(a.siteUrl) + '">Open in ' + (a.kind === "kitsu" ? "Kitsu" : a.kind === "anikoto" ? "Catalog" : "AniList") + " ↗</a>" : "") +
         '<div class="modal-actions">' +
           '<button type="button" class="act-btn' + (isInList(a.kind, a.id) ? " on" : "") + '" data-list-toggle>' + (isInList(a.kind, a.id) ? "\u2665 In My List" : "\u2661 Add to My List") + "</button>" +
           '<button type="button" class="act-btn" data-share>Share \u2197</button></div>' +
@@ -1168,17 +1166,23 @@
     }
 
     /* ===================== share + back-button routing ===================== */
-    const ROUTE_RE = /^#\/anime\/([a-z]+)\/(.+)$/;
+    const PATH_RE = /^\/anime\/([a-z]+)\/([^/]+)\/?$/;
+    const HASH_RE = /^#\/anime\/([a-z]+)\/(.+)$/; // old-style links
     let routePushed = false, routeSilent = false;
-    function routeHash(kind, id) { return "#/anime/" + kind + "/" + encodeURIComponent(id); }
+    function routePath(kind, id) { return "/anime/" + kind + "/" + encodeURIComponent(id); }
+    function currentRoute() {
+      let m = location.pathname.match(PATH_RE) || location.hash.match(HASH_RE);
+      if (!m) return null;
+      try { return { kind: m[1], id: decodeURIComponent(m[2]) }; } catch (e) { return null; }
+    }
     function routePush(kind, id) {
       if (routeSilent || kind == null || id == null) return;
-      try { history.pushState({ sa: 1 }, "", routeHash(kind, id)); routePushed = true; } catch (e) { routePushed = false; }
+      try { history.pushState({ sa: 1 }, "", routePath(kind, id)); routePushed = true; } catch (e) { routePushed = false; }
     }
     function closeModal() {
       if (!modal.classList.contains("open")) return;
       if (routePushed) { history.back(); return; } // popstate hides the modal
-      if (ROUTE_RE.test(location.hash)) { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
+      if (currentRoute()) { try { history.replaceState(null, "", "/"); } catch (e) {} }
       hideModal();
     }
     function openFromRoute(kind, id) {
@@ -1187,12 +1191,12 @@
       finally { routeSilent = false; }
     }
     window.addEventListener("popstate", () => {
-      const m = location.hash.match(ROUTE_RE);
-      if (m) openFromRoute(m[1], decodeURIComponent(m[2]));
+      const r = currentRoute();
+      if (r) openFromRoute(r.kind, r.id);
       else if (modal.classList.contains("open")) hideModal();
     });
     async function shareItem(item, btn) {
-      const url = location.origin + location.pathname + routeHash(item.kind, item.id);
+      const url = location.origin + routePath(item.kind, item.id);
       const original = btn.textContent;
       try {
         if (navigator.share) { await navigator.share({ title: item.title, text: "Watch " + item.title + " on SyncAnime", url }); return; }
@@ -1230,8 +1234,8 @@
     (async function init() {
       renderHistory();
       renderMyList();
-      const startRoute = location.hash.match(ROUTE_RE);
-      if (startRoute) openFromRoute(startRoute[1], decodeURIComponent(startRoute[2]));
+      const startRoute = currentRoute();
+      if (startRoute) openFromRoute(startRoute.kind, startRoute.id);
       setStatus("Loading catalog…");
       await Promise.all([loadRecent(), loadTop(), loadSeason(), loadAiring()]);
       setStatus("Ready · recently updated from catalog API · top/season from AniList · search works across AniList + Kitsu.");
