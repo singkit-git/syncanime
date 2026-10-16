@@ -4,7 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#080a0f">
-  <meta name="description" content="Discover and stream your next favorite anime ad-free with SyncAnime.">
+  <meta name="description" content="Browse trending, top-rated and seasonal anime, search AniList and Kitsu, and pick up right where you left off.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="SyncAnime">
+  <meta property="og:title" content="SyncAnime — Find Your Next Favorite">
+  <meta property="og:description" content="Trending, top-rated and seasonal anime, with watch history and a personal list.">
+  <meta property="og:image" content="/icon-512.png">
+  <meta name="twitter:card" content="summary">
+  <link rel="preconnect" href="https://graphql.anilist.co" crossorigin>
+  <link rel="preconnect" href="https://s4.anilist.co">
+  <link rel="preconnect" href="https://media.kitsu.app">
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="/favicon-64.png">
@@ -15,7 +24,7 @@
   <header class="topbar">
     <a class="logo" href="#" aria-label="SyncAnime home">Sync<span>Anime</span></a>
     <nav aria-label="Main navigation">
-      <a class="active" href="#">Home</a><a href="#history-section" id="nav-history">History</a><a href="#discover">Recently Updated</a><a href="#top-rated">Top Rated</a><a href="#season">This Season</a>
+      <a class="active" href="#">Home</a><a href="#history-section" id="nav-history">History</a><a href="#list-section" id="nav-list">My List</a><a href="#discover">Updated</a><a href="#airing">Airing</a><a href="#top-rated">Top Rated</a><a href="#season">This Season</a><a href="#" id="nav-install" hidden>Install app</a>
     </nav>
     <form class="search" id="search-form" role="search">
       <button aria-label="Search" type="submit">⌕</button>
@@ -27,8 +36,8 @@
   <section class="hero">
     <div class="hero-content">
       <div class="eyebrow">Your next obsession starts here</div>
-      <h1>Stream Anime.<br><span style="color:var(--red)">Ad-Free.</span></h1>
-      <p>Discover and stream your next favorite anime — ad-free, with direct HLS playback and skip intro/outro support.</p>
+      <h1>Find Anime.<br><span style="color:var(--red)">Keep Watching.</span></h1>
+      <p>Browse trending, top-rated and seasonal anime, search across AniList and Kitsu, and pick up right where you left off.</p>
       <div class="hero-actions">
         <a class="btn primary" href="#discover">Browse Anime</a>
         <a class="btn" href="#top-rated">Top Rated</a>
@@ -82,9 +91,17 @@
       <div class="section-head"><h2 class="section-title"><span class="mark">⏱</span> Continue Watching</h2><button class="see-all" data-hist-clear>Clear all</button></div>
       <div class="cards" id="history-cards"></div>
     </section>
+    <section class="section" id="list-section" hidden>
+      <div class="section-head"><h2 class="section-title"><span class="mark">♥</span> My List</h2></div>
+      <div class="cards" id="list-cards"></div>
+    </section>
     <section class="section" id="discover">
       <div class="section-head"><h2 class="section-title"><span class="mark">⚡</span> Recently Updated</h2><button class="see-all" data-refresh="recent">Refresh ↻</button></div>
       <div class="cards" id="popular-cards"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+    </section>
+    <section class="section" id="airing">
+      <div class="section-head"><h2 class="section-title"><span class="mark">⏰</span> Airing Today</h2><button class="see-all" data-refresh="airing">Refresh ↻</button></div>
+      <div class="cards" id="airing-cards"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
     </section>
     <section class="section" id="top-rated">
       <div class="section-head"><h2 class="section-title"><span class="mark">★</span> Top Rated</h2><button class="see-all" data-refresh="top">Refresh ↻</button></div>

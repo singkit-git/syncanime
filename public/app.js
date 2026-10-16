@@ -258,7 +258,7 @@
       return r.url || r.embedUrl || null;
     }
 
-    /* ===================== local ad-free player ===================== */
+    /* ===================== local player ===================== */
     let hlsLibPromise = null;
     let currentHls = null;
     function showUnmuteBtn(video) {
@@ -422,7 +422,7 @@
       const score = item.score != null ? "★ " + (Math.round(item.score * 10) / 10) : "NEW";
       const genres = (item.genres || []).slice(0, 3).map(g => typeof g === "string" ? g : g.name || "").filter(Boolean).join(" · ") || item.type || "Anime";
       return '<article class="anime-card" tabindex="0" role="button" aria-label="Details for ' + esc(title) + '" data-kind="' + esc(item.kind) + '" data-id="' + esc(item.id) + '">' +
-        '<img class="poster" loading="lazy" src="' + esc(item.poster) + '" alt="' + esc(title) + ' poster" onerror="this.onerror=null;this.src=\'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22270%22%3E%3Crect width=%22100%25%22 height=%22100%25%22 fill=%22%23151b27%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 fill=%22%23aab3c4%22 font-size=%2214%22 text-anchor=%22middle%22%3ENo poster%3C/text%3E%3C/svg%3E\'">' +
+        '<img class="poster" loading="lazy" decoding="async" src="' + esc(item.poster) + '" alt="' + esc(title) + ' poster" onerror="this.onerror=null;this.src=\'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22270%22%3E%3Crect width=%22100%25%22 height=%22100%25%22 fill=%22%23151b27%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 fill=%22%23aab3c4%22 font-size=%2214%22 text-anchor=%22middle%22%3ENo poster%3C/text%3E%3C/svg%3E\'">' +
         '<div class="card-info"><div class="card-title-line"><div class="card-title">' + esc(title) + '</div><div class="score">' + esc(score) + '</div></div>' +
         '<div class="genres">' + esc(genres) + "</div></div></article>";
     }
@@ -681,7 +681,8 @@
     const modal = document.getElementById("anime-modal");
     const modalInner = document.getElementById("modal-inner");
     function openModal() { modal.classList.add("open"); document.body.style.overflow = "hidden"; }
-    function closeModal() {
+    function hideModal() {
+      routePushed = false;
       modal.classList.remove("open"); document.body.style.overflow = "";
       stopPlayer(); modalInner.innerHTML = "";
       modalState = { item: null, match: null, episodes: [], epData: null, source: null, getEmbed: null, serversByEp: new Map() };
@@ -695,6 +696,9 @@
         '<p class="synopsis">' + esc(a.synopsis || "No synopsis is available for this title.") + "</p>" +
         (a.studios && a.studios.length ? '<p class="sub-note">Studio: ' + esc(a.studios.join(", ")) + "</p>" : "") +
         (a.siteUrl ? '<a class="external" target="_blank" rel="noopener noreferrer" href="' + esc(a.siteUrl) + '">Open in ' + (a.kind === "kitsu" ? "Kitsu" : a.kind === "anikoto" ? "Catalog" : "AniList") + " ↗</a>" : "") +
+        '<div class="modal-actions">' +
+          '<button type="button" class="act-btn' + (isInList(a.kind, a.id) ? " on" : "") + '" data-list-toggle>' + (isInList(a.kind, a.id) ? "\u2665 In My List" : "\u2661 Add to My List") + "</button>" +
+          '<button type="button" class="act-btn" data-share>Share \u2197</button></div>' +
         '</div><div id="episode-zone" style="grid-column:1/-1"><p class="sub-note">Finding streams…</p></div>';
     }
     function renderEpisodeZone(html) {
@@ -769,7 +773,7 @@
       watch.episode = ep.n != null ? ep.n : index + 1;
       watch.epCount = modalState.episodes.length;
       recordHistory(modalState.item, watch.episode, watch.epCount);
-      watch.mode = "sub";
+      watch.mode = loadPrefs().mode === "dub" ? "dub" : "sub";
       watch.embedUrl = null; watch.skip = null;
       modalState.epChunk = Math.floor(index / EP_CHUNK);
       renderEpList();
@@ -781,16 +785,19 @@
         if (modalState.epData) {
           showPlayerLoading("Fetching servers…");
           await loadEpisodeServers(index);
-          renderWatchBar();
+          if (watch.mode === "dub" && !watch.servers.some(s => s.type === "dub")) watch.mode = "sub";
           const list = serversForMode();
-          const server = list[0];
+          watch.serverIdx = preferredServerIndex(list);
+          renderWatchBar();
+          const server = list[watch.serverIdx];
           if (!server) throw new Error("No servers available.");
           await playServer(server);
         } else {
           watch.servers = []; watch.serverIdx = 0;
           renderWatchBar();
           showPlayerLoading("Fetching server…");
-          const embedUrl = await modalState.getEmbed(ep, "sub");
+          let embedUrl = await modalState.getEmbed(ep, watch.mode);
+          if (!embedUrl && watch.mode !== "sub") { watch.mode = "sub"; renderWatchBar(); embedUrl = await modalState.getEmbed(ep, "sub"); }
           if (!embedUrl) throw new Error("No stream available for this episode.");
           await playEmbed(embedUrl);
         }
@@ -804,14 +811,15 @@
       const ep = modalState.episodes[index >= 0 ? index : 0];
       if (!ep) return;
       watch.mode = mode;
+      savePref("mode", mode);
       try {
         if (modalState.epData) {
           const list = serversForMode();
           renderWatchBar();
           if (!list.length) { showPlayerError("No " + mode.toUpperCase() + " servers for this episode."); return; }
-          watch.serverIdx = 0;
+          watch.serverIdx = preferredServerIndex(list);
           renderWatchBar();
-          await playServer(list[0]);
+          await playServer(list[watch.serverIdx]);
         } else {
           renderWatchBar();
           showPlayerLoading("Switching to " + mode.toUpperCase() + "…");
@@ -828,6 +836,7 @@
       const server = list[index];
       if (!server) return;
       watch.serverIdx = index;
+      if (server.name) savePref("server", server.name);
       renderWatchBar();
       try { await playServer(server); }
       catch (err) { showPlayerError(err.message, watch.embedUrl); }
@@ -835,6 +844,7 @@
 
     /* path A: your catalog series (embed_url per episode) */
     async function openAnikotoSeries(id) {
+      routePush("anikoto", id);
       openModal();
       modalInner.innerHTML = '<div class="empty" style="grid-column:1/-1">Loading series and episodes…</div>';
       try {
@@ -859,6 +869,7 @@
 
     /* path B: AniList/Kitsu detail + AniKoto stream match */
     async function openMetadataDetail(item) {
+      routePush(item.kind, item.id);
       openModal();
       modalInner.innerHTML = '<div class="empty" style="grid-column:1/-1">Loading details…</div>';
       let a;
@@ -953,6 +964,17 @@
         await switchServer(Number(serverBtn.dataset.serverIndex));
         return;
       }
+      const listRm = event.target.closest("[data-list-remove]");
+      if (listRm) { event.stopPropagation(); removeFromList(listRm.dataset.listRemove); return; }
+      const listTg = event.target.closest("[data-list-toggle]");
+      if (listTg && modalState.item) {
+        const on = toggleList(modalState.item);
+        listTg.classList.toggle("on", on);
+        listTg.textContent = on ? "\u2665 In My List" : "\u2661 Add to My List";
+        return;
+      }
+      const shareBtn = event.target.closest("[data-share]");
+      if (shareBtn && modalState.item) { await shareItem(modalState.item, shareBtn); return; }
       const histRemove = event.target.closest("[data-hist-remove]");
       if (histRemove) { event.stopPropagation(); removeHistory(histRemove.dataset.histRemove); return; }
       if (event.target.closest("[data-hist-clear]")) { clearHistory(); return; }
@@ -973,6 +995,7 @@
       button.textContent = "Loading…";
       if (key === "top") await loadTop();
       else if (key === "season") await loadSeason();
+      else if (key === "airing") await loadAiring();
       else { cache.clear(); await loadRecent(); }
       button.textContent = "Refresh ↻";
     }));
@@ -1049,11 +1072,168 @@
     const navHistory = document.getElementById("nav-history");
     if (navHistory) navHistory.addEventListener("click", e => { e.preventDefault(); showHistorySection(); });
 
+    /* ===================== preferences ===================== */
+    const PREFS_KEY = "syncanime.prefs.v1";
+    function loadPrefs() {
+      try { const v = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; }
+    }
+    function savePref(key, value) {
+      const p = loadPrefs(); p[key] = value;
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch (e) {}
+    }
+    function preferredServerIndex(list) {
+      const name = loadPrefs().server;
+      const i = name ? list.findIndex(sv => sv.name === name) : -1;
+      return i >= 0 ? i : 0;
+    }
+
+    /* ===================== my list (watchlist) ===================== */
+    const LIST_KEY = "syncanime.list.v1";
+    let listForce = false;
+    function loadList() {
+      try { const v = JSON.parse(localStorage.getItem(LIST_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+    }
+    function saveList(list) {
+      try { localStorage.setItem(LIST_KEY, JSON.stringify(list.slice(0, 300))); } catch (e) {}
+    }
+    function isInList(kind, id) {
+      return !!kind && id != null && loadList().some(x => x.kind === kind && String(x.id) === String(id));
+    }
+    function toggleList(item) {
+      if (!item || !item.kind || item.id == null) return false;
+      let list = loadList();
+      const had = list.some(x => x.kind === item.kind && String(x.id) === String(item.id));
+      if (had) list = list.filter(x => !(x.kind === item.kind && String(x.id) === String(item.id)));
+      else list.unshift({ kind: item.kind, id: String(item.id), title: item.title || "Untitled", poster: item.poster || "", score: item.score != null ? item.score : null, type: item.type || "Anime", ts: Date.now() });
+      saveList(list);
+      renderMyList();
+      return !had;
+    }
+    function removeFromList(key) {
+      const i = key.indexOf("|");
+      const kind = key.slice(0, i), id = key.slice(i + 1);
+      saveList(loadList().filter(x => !(x.kind === kind && String(x.id) === id)));
+      renderMyList();
+    }
+    function renderMyList() {
+      const sec = document.getElementById("list-section");
+      if (!sec) return;
+      const list = loadList();
+      sec.hidden = list.length === 0 && !listForce;
+      document.getElementById("list-cards").innerHTML = list.length
+        ? list.map(x => cardHtml({ kind: x.kind, id: x.id, title: x.title, poster: x.poster, score: x.score, genres: [], type: x.type })
+            .replace("</article>", '<button class="hist-remove" type="button" aria-label="Remove from My List" data-list-remove="' + esc(x.kind + "|" + x.id) + '">\u00d7</button></article>')).join("")
+        : '<div class="empty">Your list is empty. Open an anime and tap \u201cAdd to My List\u201d.</div>';
+    }
+    function showListSection() {
+      listForce = true; renderMyList();
+      const sec = document.getElementById("list-section");
+      if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    /* ===================== airing today ===================== */
+    const AIRING_QUERY = `query($from:Int,$to:Int){Page(page:1,perPage:50){airingSchedules(airingAt_greater:$from,airingAt_lesser:$to,sort:TIME){airingAt episode media{id title{romaji english} coverImage{large} format averageScore isAdult}}}}`;
+    function fmtSpan(sec) {
+      const m = Math.max(1, Math.round(Math.abs(sec) / 60));
+      if (m < 60) return m + "m";
+      const h = Math.floor(m / 60);
+      return h < 24 ? h + "h" + (m % 60 ? " " + (m % 60) + "m" : "") : Math.floor(h / 24) + "d";
+    }
+    async function loadAiring() {
+      const el = document.getElementById("airing-cards");
+      if (!el) return;
+      el.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+      try {
+        const d = new Date(); d.setHours(0, 0, 0, 0);
+        const from = Math.floor(d.getTime() / 1000) - 1;
+        const data = await gql(AIRING_QUERY, { from, to: from + 86402 });
+        const now = Math.floor(Date.now() / 1000);
+        const seen = new Set(), up = [], done = [];
+        for (const row of data.Page.airingSchedules) {
+          const m = row.media;
+          if (!m || m.isAdult || seen.has(m.id)) continue;
+          seen.add(m.id);
+          const diff = row.airingAt - now;
+          const label = "Ep " + row.episode + " \u00b7 " + (diff > 0 ? "in " + fmtSpan(diff) : fmtSpan(diff) + " ago");
+          const item = { kind: "anilist", id: String(m.id), title: (m.title && (m.title.english || m.title.romaji)) || "Untitled", poster: m.coverImage ? m.coverImage.large : "", score: typeof m.averageScore === "number" && m.averageScore > 0 ? m.averageScore / 10 : null, genres: [label], type: label };
+          (diff > 0 ? up : done).push({ at: row.airingAt, item });
+        }
+        up.sort((a, b) => a.at - b.at); done.sort((a, b) => b.at - a.at);
+        const items = up.concat(done).slice(0, 24).map(x => x.item);
+        if (!items.length) el.innerHTML = '<div class="empty">No episodes scheduled today.</div>';
+        else el.innerHTML = items.map(cardHtml).join("");
+      } catch (error) {
+        el.innerHTML = '<div class="empty">' + esc(error.message) + ' <button class="btn" data-refresh="airing">Retry</button></div>';
+      }
+    }
+
+    /* ===================== share + back-button routing ===================== */
+    const ROUTE_RE = /^#\/anime\/([a-z]+)\/(.+)$/;
+    let routePushed = false, routeSilent = false;
+    function routeHash(kind, id) { return "#/anime/" + kind + "/" + encodeURIComponent(id); }
+    function routePush(kind, id) {
+      if (routeSilent || kind == null || id == null) return;
+      try { history.pushState({ sa: 1 }, "", routeHash(kind, id)); routePushed = true; } catch (e) { routePushed = false; }
+    }
+    function closeModal() {
+      if (!modal.classList.contains("open")) return;
+      if (routePushed) { history.back(); return; } // popstate hides the modal
+      if (ROUTE_RE.test(location.hash)) { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
+      hideModal();
+    }
+    function openFromRoute(kind, id) {
+      routeSilent = true; routePushed = false;
+      try { return kind === "anikoto" ? openAnikotoSeries(id) : openMetadataDetail({ kind, id }); }
+      finally { routeSilent = false; }
+    }
+    window.addEventListener("popstate", () => {
+      const m = location.hash.match(ROUTE_RE);
+      if (m) openFromRoute(m[1], decodeURIComponent(m[2]));
+      else if (modal.classList.contains("open")) hideModal();
+    });
+    async function shareItem(item, btn) {
+      const url = location.origin + location.pathname + routeHash(item.kind, item.id);
+      const original = btn.textContent;
+      try {
+        if (navigator.share) { await navigator.share({ title: item.title, text: "Watch " + item.title + " on SyncAnime", url }); return; }
+        await navigator.clipboard.writeText(url);
+        btn.textContent = "Link copied \u2713";
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        window.prompt("Copy this link:", url);
+      }
+      setTimeout(() => { btn.textContent = original; }, 1600);
+    }
+
+    /* ===================== install prompt ===================== */
+    let deferredInstall = null;
+    window.addEventListener("beforeinstallprompt", e => {
+      e.preventDefault(); deferredInstall = e;
+      const n = document.getElementById("nav-install"); if (n) n.hidden = false;
+    });
+    window.addEventListener("appinstalled", () => {
+      deferredInstall = null;
+      const n = document.getElementById("nav-install"); if (n) n.hidden = true;
+    });
+    const navInstall = document.getElementById("nav-install");
+    if (navInstall) navInstall.addEventListener("click", async e => {
+      e.preventDefault(); closeMenu();
+      if (!deferredInstall) return;
+      deferredInstall.prompt();
+      try { await deferredInstall.userChoice; } catch (err) {}
+      deferredInstall = null; navInstall.hidden = true;
+    });
+    const navList = document.getElementById("nav-list");
+    if (navList) navList.addEventListener("click", e => { e.preventDefault(); showListSection(); });
+
     /* ===================== init ===================== */
     (async function init() {
       renderHistory();
+      renderMyList();
+      const startRoute = location.hash.match(ROUTE_RE);
+      if (startRoute) openFromRoute(startRoute[1], decodeURIComponent(startRoute[2]));
       setStatus("Loading catalog…");
-      await Promise.all([loadRecent(), loadTop(), loadSeason()]);
+      await Promise.all([loadRecent(), loadTop(), loadSeason(), loadAiring()]);
       setStatus("Ready · recently updated from catalog API · top/season from AniList · search works across AniList + Kitsu.");
     })();
 

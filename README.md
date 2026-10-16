@@ -1,6 +1,6 @@
 # SyncAnime
 
-Single-page anime catalog + ad-free player.
+Single-page anime catalog + player.
 
 ## Files
 
@@ -36,7 +36,7 @@ PORT=8080
 | `/api/direct?url=<embed>` | Resolves a megaplay embed URL to a direct m3u8 (+ subtitle tracks, intro/outro skip times) |
 | `/api/hls?url=<m3u8>` | Fetches HLS playlists/segments with the correct Referer + CDN token; rewrites playlist URLs through itself |
 
-The `/api/direct` and `/api/hls` endpoints are what make playback ad-free: the page never loads the ad embed when a direct stream can be resolved.
+The `/api/direct` and `/api/hls` endpoints are only available on the Node server. On the Cloudflare deployment the player uses the normal embed.
 
 ## Data sources
 

@@ -505,7 +505,7 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const PUBLIC_FILES = new Set([
   '/index.html', '/styles.css', '/app.js', '/sw.js', '/manifest.json',
   '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png',
-  '/apple-touch-icon.png', '/favicon-64.png',
+  '/apple-touch-icon.png', '/favicon-64.png', '/hero-bg.jpg',
 ]);
 const NO_STORE_FILES = new Set(['/index.html', '/sw.js', '/manifest.json']);
 const STATIC_CACHE = new Map(); // pathname -> { mtimeMs, etag, raw, gzip }
