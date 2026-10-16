@@ -498,6 +498,7 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.ico': 'image/x-icon',
+  '.xml': 'application/xml',
 };
 
 // Only these files are public. server.js, .env, package.json etc. are never served.
@@ -506,6 +507,8 @@ const PUBLIC_FILES = new Set([
   '/index.html', '/styles.css', '/app.js', '/sw.js', '/manifest.json',
   '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png',
   '/apple-touch-icon.png', '/favicon-64.png', '/hero-bg.jpg',
+  '/favicon.ico', '/favicon-16x16.png', '/favicon-32x32.png', '/ipad-icon-152x152.png', '/ipad-icon-167x167.png',
+  '/windows-tile-144x144.png', '/browserconfig.xml', '/logo-header.png',
 ]);
 const NO_STORE_FILES = new Set(['/index.html', '/sw.js', '/manifest.json']);
 const STATIC_CACHE = new Map(); // pathname -> { mtimeMs, etag, raw, gzip }
@@ -553,7 +556,7 @@ function serveStatic(req, res) {
     if (entry && entry.mtimeMs === st.mtimeMs) return send();
     fs.readFile(filePath, (err, data) => {
       if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); return; }
-      const compressible = /\.(html|css|js|json|svg)$/.test(pathname);
+      const compressible = /\.(html|css|js|json|svg|xml)$/.test(pathname);
       entry = {
         mtimeMs: st.mtimeMs,
         etag: '"' + crypto.createHash('sha1').update(data).digest('hex').slice(0, 20) + '"',

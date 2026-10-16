@@ -109,3 +109,8 @@ nav a[hidden]{display:none}
 .act-btn{border:1px solid #ffffff22;background:#151b26;color:#e8ecf4;border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .act-btn.on{background:#f21d4b26;border-color:var(--red);color:#fff}
 .act-btn:active{background:var(--red);border-color:var(--red)}
+
+/* ===== Logo ===== */
+.logo{display:inline-flex;align-items:center;gap:8px}
+.logo-mark{width:36px;height:36px;object-fit:contain;flex:none;filter:drop-shadow(0 0 10px #f21d4b55)}
+@media(max-width:700px){.logo-mark{width:32px;height:32px}}
