@@ -716,10 +716,12 @@
         }
         chips += "</div>";
       }
+      const hist = modalState.item ? historyEntry(modalState.item.kind, modalState.item.id) : null;
+      const seen = new Set(hist && Array.isArray(hist.watched) ? hist.watched.map(String) : []);
       let grid = '<div class="ep-list">';
       for (let i = from; i < to; i++) {
         const active = watch.episode != null && epNum(eps[i], i) === watch.episode;
-        grid += '<button class="ep-btn ep-row' + (active ? " active" : "") + '" data-ep-index="' + i + '" aria-label="Play episode ' + esc(epNum(eps[i], i)) + '">' + esc(epNum(eps[i], i)) + "</button>";
+        grid += '<button class="ep-btn ep-row' + (active ? " active" : "") + (seen.has(String(epNum(eps[i], i))) ? " seen" : "") + '" data-ep-index="' + i + '" aria-label="Play episode ' + esc(epNum(eps[i], i)) + '">' + esc(epNum(eps[i], i)) + "</button>";
       }
       return chips + grid + "</div>";
     }
@@ -730,7 +732,16 @@
     function episodeRowsHtml(episodes, kind) {
       if (!episodes.length) return '<p class="sub-note">No episodes found on the streaming source.</p>';
       modalState.epChunk = 0;
-      return '<h3 style="margin:18px 0 10px;font-size:15px">Episodes (' + episodes.length + ')</h3><div id="ep-wrap">' + epListInner() + "</div>";
+      let resume = "";
+      const hist = modalState.item ? historyEntry(modalState.item.kind, modalState.item.id) : null;
+      if (hist) {
+        const ri = episodes.findIndex((ep, i) => String(epNum(ep, i)) === String(hist.episode));
+        if (ri >= 0) {
+          modalState.epChunk = Math.floor(ri / EP_CHUNK);
+          resume = '<button class="resume-btn" type="button" data-ep-index="' + ri + '">\u25b6 Continue Episode ' + esc(hist.episode) + "</button>";
+        }
+      }
+      return '<h3 style="margin:18px 0 10px;font-size:15px">Episodes (' + episodes.length + ')</h3>' + resume + '<div id="ep-wrap">' + epListInner() + "</div>";
     }
     async function loadEpisodeServers(epIndex) {
       const ep = modalState.episodes[epIndex];
@@ -756,6 +767,7 @@
       watch.title = modalState.item.title;
       watch.episode = ep.n != null ? ep.n : index + 1;
       watch.epCount = modalState.episodes.length;
+      recordHistory(modalState.item, watch.episode, watch.epCount);
       watch.mode = "sub";
       watch.embedUrl = null; watch.skip = null;
       modalState.epChunk = Math.floor(index / EP_CHUNK);
@@ -940,6 +952,9 @@
         await switchServer(Number(serverBtn.dataset.serverIndex));
         return;
       }
+      const histRemove = event.target.closest("[data-hist-remove]");
+      if (histRemove) { event.stopPropagation(); removeHistory(histRemove.dataset.histRemove); return; }
+      if (event.target.closest("[data-hist-clear]")) { clearHistory(); return; }
       const article = event.target.closest(".anime-card");
       if (!article) return;
       const kind = article.dataset.kind, id = article.dataset.id;
@@ -966,8 +981,61 @@
       nav.style.cssText = open ? "" : "display:flex;position:absolute;top:61px;left:0;right:0;background:#0b0e15;padding:18px;flex-direction:column;align-items:flex-start;border-bottom:1px solid #ffffff20";
     });
 
+    /* ===================== watch history ===================== */
+    const HISTORY_KEY = "syncanime.history.v1";
+    const HISTORY_MAX = 40;
+    function loadHistory() {
+      try { const v = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+    }
+    function saveHistoryList(list) {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_MAX))); } catch (e) { /* storage full or blocked */ }
+    }
+    function historyEntry(kind, id) {
+      if (!kind || id == null) return null;
+      return loadHistory().find(h => h.kind === kind && String(h.id) === String(id)) || null;
+    }
+    function recordHistory(item, episode, epCount) {
+      if (!item || !item.kind || item.id == null || episode == null) return;
+      const list = loadHistory();
+      const idx = list.findIndex(h => h.kind === item.kind && String(h.id) === String(item.id));
+      const prev = idx >= 0 ? list.splice(idx, 1)[0] : null;
+      const watched = new Set(prev && Array.isArray(prev.watched) ? prev.watched.map(String) : []);
+      watched.add(String(episode));
+      list.unshift({
+        kind: item.kind, id: String(item.id), title: item.title || "Untitled", poster: item.poster || "",
+        score: item.score != null ? item.score : null, episode, epCount: epCount || 0,
+        watched: Array.from(watched).slice(-600), ts: Date.now(),
+      });
+      saveHistoryList(list);
+      renderHistory();
+    }
+    function removeHistory(key) {
+      const i = key.indexOf("|");
+      const kind = key.slice(0, i), id = key.slice(i + 1);
+      saveHistoryList(loadHistory().filter(h => !(h.kind === kind && String(h.id) === id)));
+      renderHistory();
+    }
+    function clearHistory() {
+      if (!window.confirm("Clear your watch history?")) return;
+      try { localStorage.removeItem(HISTORY_KEY); } catch (e) {}
+      renderHistory();
+    }
+    function historyCardHtml(h) {
+      const label = "Ep " + h.episode + (h.epCount ? " / " + h.epCount : "");
+      const html = cardHtml({ kind: h.kind, id: h.id, title: h.title, poster: h.poster, score: h.score, genres: [label], type: label });
+      return html.replace("</article>", '<button class="hist-remove" type="button" aria-label="Remove from history" data-hist-remove="' + esc(h.kind + "|" + h.id) + '">\u00d7</button></article>');
+    }
+    function renderHistory() {
+      const sec = document.getElementById("history-section");
+      if (!sec) return;
+      const list = loadHistory().slice(0, 20);
+      sec.hidden = list.length === 0;
+      document.getElementById("history-cards").innerHTML = list.map(historyCardHtml).join("");
+    }
+
     /* ===================== init ===================== */
     (async function init() {
+      renderHistory();
       setStatus("Loading catalog…");
       await Promise.all([loadRecent(), loadTop(), loadSeason()]);
       setStatus("Ready · recently updated from catalog API · top/season from AniList · search works across AniList + Kitsu.");
