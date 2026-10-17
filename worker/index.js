@@ -119,8 +119,11 @@ async function lookupAnime(kind, id, env) {
   }
   if (kind === 'kitsu') {
     if (!/^\d+$/.test(id)) return null;
-    const r = await fetch('https://kitsu.io/api/edge/anime/' + id, { headers: { Accept: 'application/vnd.api+json' } });
-    if (!r.ok) return null;
+    let r = null;
+    for (const base of ['https://kitsu.io/api/edge', 'https://kitsu.app/api/edge']) {
+      try { r = await fetch(base + '/anime/' + id, { headers: { Accept: 'application/vnd.api+json' } }); if (r.status < 500) break; } catch (e) { r = null; }
+    }
+    if (!r || !r.ok) return null;
     const a = (((await r.json()).data) || {}).attributes;
     if (!a || a.nsfw) return null;
     const cover = a.coverImage && (a.coverImage.large || a.coverImage.original);
@@ -192,7 +195,7 @@ export default {
     // The frontend calls this first. On this deployment there is no stream resolver,
     // so answer "no direct stream" and the app plays the normal embed instead.
     if (url.pathname === '/api/direct') {
-      return json(200, { url: null, reason: 'Direct playback is not available on this deployment' });
+      return json(200, { url: null, unavailable: true, reason: 'Direct playback is not available on this deployment' });
     }
 
     if (url.pathname.startsWith('/api/')) return json(404, { error: 'Not found' });

@@ -3,7 +3,19 @@
     const ANIKOTO_LOCAL = "https://www.anikotoapi.site";          // your instance: recent + series
     const ANIKOTO_VERCEL = "https://anikototvapi.vercel.app/api"; // search/episodes/servers/stream
     const ANILIST = "https://graphql.anilist.co";
-    const KITSU = "https://kitsu.io/api/edge";
+    const KITSU_BASES = ["https://kitsu.io/api/edge", "https://kitsu.app/api/edge"];
+    // Tries each Kitsu address in turn; moves on only when one is unreachable or returns a server error.
+    async function kitsuFetch(path) {
+      let lastErr = null;
+      for (const base of KITSU_BASES) {
+        try {
+          const r = await fetch(base + path, { headers: { Accept: "application/vnd.api+json" } });
+          if (r.status < 500) return r;
+          lastErr = new Error("Kitsu returned HTTP " + r.status + ".");
+        } catch (e) { lastErr = e; }
+      }
+      throw lastErr || new Error("Kitsu is unreachable.");
+    }
     const cache = new Map();
     const statusEl = document.getElementById("status");
     const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -53,7 +65,28 @@
         characters(perPage:8){edges{role node{name{full} image{medium}}}}
       }
     }`;
+    const GQL_TTL = 5 * 60 * 1000;
+    let gqlFresh = false; // true while the user presses Refresh/Retry: skip the saved copy
+    function gqlKey(query, variables) {
+      const str = query + JSON.stringify(variables || {});
+      let h = 5381;
+      for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+      return "sa.gql." + (h >>> 0).toString(36) + "." + str.length;
+    }
+    function gqlStore(key, data) {
+      try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data })); }
+      catch (e) {
+        try { Object.keys(sessionStorage).filter(k => k.indexOf("sa.gql.") === 0).forEach(k => sessionStorage.removeItem(k)); } catch (e2) {}
+      }
+    }
     async function gql(query, variables) {
+      const key = gqlKey(query, variables);
+      if (!gqlFresh) {
+        try {
+          const raw = sessionStorage.getItem(key);
+          if (raw) { const o = JSON.parse(raw); if (Date.now() - o.t < GQL_TTL) return o.d; }
+        } catch (e) {}
+      }
       const response = await fetch(ANILIST, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -63,6 +96,7 @@
       if (!response.ok) throw new Error("AniList returned HTTP " + response.status + ".");
       const body = await response.json();
       if (body.errors && body.errors.length) throw new Error(body.errors[0].message);
+      gqlStore(key, body.data);
       return body.data;
     }
     const cleanDesc = t => String(t || "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").trim();
@@ -160,7 +194,7 @@
         if (cat) q.set("filter[categories]", cat);
       }
       if (!params.search) q.set("sort", "-popularityRank");
-      const response = await fetch(KITSU + "/anime?" + q, { headers: { Accept: "application/vnd.api+json" } });
+      const response = await kitsuFetch("/anime?" + q);
       if (!response.ok) throw new Error("Kitsu returned HTTP " + response.status + ".");
       const body = await response.json();
       const count = body.meta && typeof body.meta.count === "number"
@@ -185,7 +219,7 @@
       }
     }
     async function kitsuDetail(id) {
-      const response = await fetch(KITSU + "/anime/" + encodeURIComponent(id) + "?include=genres", { headers: { Accept: "application/vnd.api+json" } });
+      const response = await kitsuFetch("/anime/" + encodeURIComponent(id) + "?include=genres");
       if (!response.ok) throw new Error("Kitsu returned HTTP " + response.status + ".");
       const body = await response.json();
       const a = body.data.attributes;
@@ -364,21 +398,30 @@
       } else throw new Error("HLS not supported in this browser.");
       setupSkipButtons(video);
     }
+    let directOff = false;
+    try { directOff = sessionStorage.getItem("sa.direct.off") === "1"; } catch (e) {}
+    function markDirectOff() { directOff = true; try { sessionStorage.setItem("sa.direct.off", "1"); } catch (e) {} }
+    function showEmbed(embedUrl) {
+      playerBox().innerHTML =
+        '<iframe src="' + esc(embedUrl) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>';
+    }
     async function playEmbed(embedUrl) {
       watch.embedUrl = embedUrl;
       renderWatchBar();
+      if (directOff) { showEmbed(embedUrl); return; }
       showPlayerLoading("Resolving direct stream…");
       try {
         const response = await fetch("/api/direct?url=" + encodeURIComponent(embedUrl));
+        if (response.status === 404) { markDirectOff(); showEmbed(embedUrl); return; }
         if (!response.ok) throw new Error("Resolver HTTP " + response.status + ".");
         const direct = await response.json();
+        if (direct.unavailable) { markDirectOff(); showEmbed(embedUrl); return; }
         if (!direct.url) throw new Error(direct.reason || "Could not resolve a direct stream.");
         watch.skip = { intro: direct.intro, outro: direct.outro };
         await playDirect(direct.url, direct.tracks || []);
       } catch (err) {
         showPlayerError(err.message + " — playing embed instead.", embedUrl);
-        playerBox().innerHTML =
-          '<iframe src="' + esc(embedUrl) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>';
+        showEmbed(embedUrl);
       }
       renderWatchBar();
     }
@@ -468,7 +511,7 @@
       try {
         renderCards("top-cards", await anilistTop());
       } catch (error) {
-        try { renderCards("top-cards", await kitsuSearch("")); }
+        try { renderCards("top-cards", (await kitsuBrowse({ page: 1, search: "" })).items); }
         catch (e) { el.innerHTML = '<div class="empty">' + esc(error.message) + "</div>"; }
       }
     }
@@ -679,11 +722,26 @@
     let modalState = { item: null, match: null, episodes: [], epData: null, source: null, getEmbed: null, serversByEp: new Map() };
     const modal = document.getElementById("anime-modal");
     const modalInner = document.getElementById("modal-inner");
-    function openModal() { modal.classList.add("open"); document.body.style.overflow = "hidden"; }
+    let lastFocus = null;
+    function openModal() {
+      lastFocus = document.activeElement;
+      modal.classList.add("open"); document.body.style.overflow = "hidden";
+      const closeBtn = document.getElementById("modal-close");
+      if (closeBtn) closeBtn.focus({ preventScroll: true });
+    }
+    function trapFocus(e) {
+      const nodes = Array.from(modal.querySelectorAll('a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])')).filter(n => n.offsetParent !== null);
+      if (!nodes.length) return;
+      const first = nodes[0], last = nodes[nodes.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
     function hideModal() {
       routePushed = false;
       modal.classList.remove("open"); document.body.style.overflow = "";
       stopPlayer(); modalInner.innerHTML = "";
+      if (lastFocus && lastFocus.isConnected && typeof lastFocus.focus === "function") { try { lastFocus.focus({ preventScroll: true }); } catch (e) {} }
+      lastFocus = null;
       modalState = { item: null, match: null, episodes: [], epData: null, source: null, getEmbed: null, serversByEp: new Map() };
     }
     function modalInfoHtml(a, extraHtml) {
@@ -988,17 +1046,24 @@
     modal.addEventListener("click", e => { if (e.target.id === "anime-modal") closeModal(); });
     document.addEventListener("keydown", e => {
       if (e.key === "Escape") closeModal();
+      if (e.key === "Tab" && modal.classList.contains("open")) trapFocus(e);
       if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("anime-card")) { e.preventDefault(); e.target.click(); }
     });
-    document.querySelectorAll("[data-refresh]").forEach(button => button.addEventListener("click", async () => {
-      const key = button.dataset.refresh;
-      button.textContent = "Loading…";
-      if (key === "top") await loadTop();
-      else if (key === "season") await loadSeason();
-      else if (key === "airing") await loadAiring();
-      else { cache.clear(); await loadRecent(); }
-      button.textContent = "Refresh ↻";
-    }));
+    document.addEventListener("click", async e => {
+      const button = e.target.closest("[data-refresh]");
+      if (!button || button.dataset.busy) return;
+      const key = button.dataset.refresh, label = button.textContent;
+      button.dataset.busy = "1"; button.textContent = "Loading…"; gqlFresh = true;
+      try {
+        if (key === "top") await loadTop();
+        else if (key === "season") await loadSeason();
+        else if (key === "airing") await loadAiring();
+        else { cache.clear(); await loadRecent(); }
+      } finally {
+        gqlFresh = false;
+        if (button.isConnected) { delete button.dataset.busy; button.textContent = label === "Retry" ? "Retry" : "Refresh \u21bb"; }
+      }
+    });
     function closeMenu() { document.querySelector("nav").style.cssText = ""; }
     document.querySelectorAll('nav[aria-label="Main navigation"] a').forEach(a => a.addEventListener("click", closeMenu));
     document.getElementById("menu-btn").addEventListener("click", () => {
@@ -1239,7 +1304,17 @@
       const startRoute = currentRoute();
       if (startRoute) openFromRoute(startRoute.kind, startRoute.id);
       setStatus("Loading catalog…");
-      await Promise.all([loadRecent(), loadTop(), loadSeason(), loadAiring()]);
+      await loadRecent(); // the row at the top loads right away
+      // Rows further down load when you scroll near them (saves requests and speeds up the first view)
+      const lazyRows = [["top-rated", loadTop], ["season", loadSeason], ["airing", loadAiring]];
+      if ("IntersectionObserver" in window) {
+        const io = new IntersectionObserver(entries => entries.forEach(en => {
+          if (en.isIntersecting) { io.unobserve(en.target); if (en.target._load) en.target._load(); }
+        }), { rootMargin: "700px 0px" });
+        lazyRows.forEach(([id, fn]) => { const el = document.getElementById(id); if (el) { el._load = fn; io.observe(el); } });
+      } else {
+        await Promise.all(lazyRows.map(([, fn]) => fn()));
+      }
       setStatus("Ready · recently updated from catalog API · top/season from AniList · search works across AniList + Kitsu.");
     })();
 
