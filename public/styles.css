@@ -112,5 +112,5 @@ nav a[hidden]{display:none}
 
 /* ===== Logo ===== */
 .logo{display:inline-flex;align-items:center}
-.logo-mark{width:auto;height:36px;flex:none;margin-right:9px}
-@media(max-width:700px){.logo-mark{height:32px}}
+.logo-mark{width:auto;height:33px;flex:none;margin-right:10px;transform:translateY(-.14em)}
+@media(max-width:700px){.logo-mark{height:29px}}
