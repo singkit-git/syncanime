@@ -111,6 +111,6 @@ nav a[hidden]{display:none}
 .act-btn:active{background:var(--red);border-color:var(--red)}
 
 /* ===== Logo ===== */
-.logo{display:inline-flex;align-items:center;gap:8px}
-.logo-mark{width:auto;height:36px;flex:none}
+.logo{display:inline-flex;align-items:center}
+.logo-mark{width:auto;height:36px;flex:none;margin-right:9px}
 @media(max-width:700px){.logo-mark{height:32px}}
