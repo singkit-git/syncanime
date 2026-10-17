@@ -13,7 +13,7 @@
   Cache-Control: no-cache
 
 /*.png
-  Cache-Control: public, max-age=86400
+  Cache-Control: public, max-age=0, must-revalidate
 
 /favicon.ico
-  Cache-Control: public, max-age=86400
+  Cache-Control: public, max-age=0, must-revalidate

@@ -1,5 +1,5 @@
 // Caches the app shell only. API, stream and poster requests always go to the network.
-const CACHE = 'syncanime-shell-v13';
+const CACHE = 'syncanime-shell-v14';
 const SHELL = ['/', '/styles.css', '/app.js', '/manifest.json', '/icon-192.png', '/hero-bg.jpg', '/logo-header.png', '/favicon.ico'];
 
 self.addEventListener('install', (e) => {
