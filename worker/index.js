@@ -5,6 +5,19 @@
 const CATALOG_BASE = 'https://www.anikotoapi.site';
 const CATALOG_TTL = 300; // seconds
 
+// Rate limit per visitor (Workers Rate Limiting binding, see wrangler.jsonc). Fails open: if the
+// binding is missing or errors, requests are allowed so the site never breaks because of it.
+async function rateLimited(request, env, bucket) {
+  if (!env || !env.API_LIMITER) return false;
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  try {
+    const { success } = await env.API_LIMITER.limit({ key: bucket + ':' + ip });
+    return !success;
+  } catch (e) {
+    return false;
+  }
+}
+
 function json(status, obj, extra = {}) {
   return new Response(JSON.stringify(obj), {
     status,
@@ -41,6 +54,9 @@ function fromMem(entry, stale) {
 
 async function handleCatalog(request, url, env) {
   if (request.method !== 'GET') return json(405, { error: 'Method not allowed' });
+  if (await rateLimited(request, env, 'catalog')) {
+    return json(429, { error: 'Too many requests. Please slow down.' }, { 'Retry-After': '30' });
+  }
 
   const rest = url.pathname.slice('/api/catalog/'.length).replace(/^\/+/, '');
   // Only simple path segments; blocks "..", encoded tricks and absolute URLs.
@@ -159,7 +175,9 @@ async function handleAnimePage(request, url, env) {
   let html = await page.text();
   const m = url.pathname.match(/^\/anime\/([a-z]+)\/([^/]+)\/?$/);
   let info = null;
-  if (m) { try { info = await lookupAnime(m[1], decodeURIComponent(m[2]), env); } catch (e) { info = null; } }
+  // Over the limit: still serve the app, just skip the AniList/Kitsu lookup used for link previews.
+  const limited = m ? await rateLimited(request, env, 'page') : false;
+  if (m && !limited) { try { info = await lookupAnime(m[1], decodeURIComponent(m[2]), env); } catch (e) { info = null; } }
 
   const fallbackImg = url.origin + '/icon-512.png';
   let image = fallbackImg, wide = false;
