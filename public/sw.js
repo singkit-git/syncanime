@@ -1,5 +1,5 @@
 // Caches the app shell + remembers poster images. API and stream requests always go to the network.
-const CACHE = 'syncanime-shell-v11';
+const CACHE = 'syncanime-shell-v12';
 const IMG = 'syncanime-img-v1';
 const IMG_MAX = 200;
 const SHELL = ['/', '/styles.css', '/app.js', '/manifest.json', '/icon-192.png', '/hero-bg.jpg', '/logo-header.png', '/favicon.ico'];
